@@ -34,7 +34,10 @@ void loader_cleanup() {
 
     for (int i =0 ; i<number_of_phdrs; i++){
         if (deletionarray[i] != NULL){
-            munmap(deletionarray[i]->m_phdr, deletionarray[i]->size);
+            if (munmap(deletionarray[i]->m_phdr, deletionarray[i]->size) == -1){
+                perror("Error: munmap");
+                exit(0);
+            }
             free(deletionarray[i]);
         }
     }
@@ -55,7 +58,11 @@ void ELF_checker(char** exe){
         exit(0);
     }
     int esize = sizeof(Elf32_Ehdr);
-    ehdr = (Elf32_Ehdr*)malloc(esize * sizeof(char));                   //malloc mai check????
+    ehdr = (Elf32_Ehdr*)malloc(esize * sizeof(char));                
+    if (ehdr == NULL){
+        perror("Error: malloc");
+        exit(0);
+    }
     lseek(fd, 0 , SEEK_SET);
     read(fd, ehdr, esize * sizeof(char));
     int a = Check_Magic_Num(ehdr);
@@ -77,14 +84,32 @@ void ELF_checker(char** exe){
  */
 void load_and_run_elf(char** exe) {
     fd = open(*exe, O_RDONLY);
+    if (fd == -1){
+        perror("Error while opening");
+        exit(0);
+    }
     // 1. Load entire binary content into the memory from the ELF file.
     int buff_size = lseek(fd, 0, SEEK_END);
+    if (buff_size == -1){
+        perror("Error: lseek");
+        exit(0);
+    }
     // 2. Iterate through the PHDR table and find the section of PT_LOAD 
     //    type that contains the address of the entrypoint method in fib.c
     int ehdrsize = sizeof(Elf32_Ehdr);
     ehdr = (Elf32_Ehdr*) malloc(ehdrsize * sizeof(char));
-    lseek(fd, 0, SEEK_SET);
-    read(fd, ehdr, ehdrsize * sizeof(char));
+    if (ehdr == NULL){
+        perror("Error: malloc");
+        exit(0);
+    }
+    if (lseek(fd, 0, SEEK_SET) == -1){
+        perror("Error: lseek");
+        exit(0);
+    }
+    if (read(fd, ehdr, ehdrsize * sizeof(char)) == -1){
+        perror("Error: read");
+        exit(0);
+    }
 
     number_of_phdrs = ehdr->e_phnum;
     phdr_offset = ehdr->e_phoff;
@@ -92,12 +117,30 @@ void load_and_run_elf(char** exe) {
     entryaddr = ehdr->e_entry;
 
     phdrarray = (Elf32_Phdr**)malloc(phdr_size*sizeof(char)*number_of_phdrs);
+    if (phdrarray == NULL){
+        perror("Error: malloc");
+        exit(0);
+    }
     deletionarray = (mapped_phdr**)malloc(sizeof(mapped_phdr)*number_of_phdrs);
+    if (deletionarray == NULL){
+        perror("Error: malloc");
+        exit(0);
+    }
 
     for (int i=0; i<number_of_phdrs; i++){
         Elf32_Phdr* tempphdr = (Elf32_Phdr*)malloc(phdr_size*sizeof(char));
-        lseek(fd, phdr_offset + i * phdr_size, SEEK_SET);
-        read(fd, tempphdr, phdr_size);
+        if (tempphdr == NULL){
+            perror("Error: malloc");
+            exit(0);
+        } 
+        if (lseek(fd, phdr_offset + i * phdr_size, SEEK_SET) == -1){
+            perror("Error: lseek");
+            exit(0);
+        }
+        if (read(fd, tempphdr, phdr_size) == -1){
+            perror("Error: read");
+            exit(0);
+        }
         phdrarray[i] = tempphdr;
     }
     // for (int i=0; i<number_of_phdrs; i++){
@@ -114,7 +157,11 @@ void load_and_run_elf(char** exe) {
     printf("Total number of page faults = %d\n", total_page_faults);
     printf("Total number of page allocations = %d\n", total_page_allocations);
     printf("Total amount of internal fragmentation in KB = %.2f\n", (double)internal_fragmentation/1024);
-    close(fd);
+    if (close(fd) == -1){
+        perror("Error while closing");
+        exit(0);
+    }
+
 }
 
 static void personal_handler(int signum, siginfo_t *info, void *context){
@@ -128,13 +175,27 @@ static void personal_handler(int signum, siginfo_t *info, void *context){
                 int tempsize = phdrarray[i]->p_memsz;
                 int ceilval = (tempsize + (int)PAGE_SIZE - 1) / (int) PAGE_SIZE;      //ceil val of division (number of pages)
                 phdr = (Elf32_Phdr*)mmap((void*)vadr, ceilval*(int)PAGE_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
+                if ((int)phdr == -1){
+                    perror("Error: mmap");
+                    exit(0);
+                }
                 internal_fragmentation += (ceilval*(int)PAGE_SIZE) - tempsize;
                 total_page_allocations += ceilval;
-                lseek(fd, phdrarray[i]->p_offset, SEEK_SET);
-                read(fd, phdr, phdrarray[i]->p_memsz);
+                if (lseek(fd, phdrarray[i]->p_offset, SEEK_SET) == -1){
+                    perror("Error: lseek");
+                    exit(0);
+                }
+                if (read(fd, phdr, phdrarray[i]->p_memsz) == -1){
+                    perror("Error: read");
+                    exit(0);
+                }
 
                 mapped_phdr* temp = NULL;
                 temp = (mapped_phdr*)malloc(sizeof(mapped_phdr));
+                if (temp == NULL){
+                    perror("Error: malloc");
+                    exit(0);
+                }
                 temp->m_phdr = phdr;
                 temp->size = ceilval*(int)PAGE_SIZE;
                 deletionarray[i] = temp;
@@ -158,7 +219,10 @@ int main(int argc, char** argv)
     memset(&sig, 0, sizeof(sig));
     sig.sa_sigaction = personal_handler;
     sig.sa_flags = SA_SIGINFO;
-    sigaction(SIGSEGV, &sig, NULL);
+    if (sigaction(SIGSEGV, &sig, NULL) == -1){
+        perror("Error: sigaction");
+        exit(0);
+    }
 
 
     // 2. passing it to the loader for carrying out the loading/execution
