@@ -6,16 +6,39 @@ int fd;
 int phdr_size;
 Elf32_Phdr **phdrarray;
 
+
 int number_of_phdrs, phdr_offset, entryaddr;
+int total_page_faults = 0;
+int total_page_allocations = 0;
+int internal_fragmentation = 0;
+int PAGE_SIZE = 4096;
 
 void* final_addr;
+
+typedef struct mapped_phdr{
+    Elf32_Phdr* m_phdr;
+    int size;
+}mapped_phdr;
+
+mapped_phdr **deletionarray;
 
 /*
  * release memory and other cleanups
  */
 void loader_cleanup() {
     free(ehdr);
-    free(phdr);
+    for (int i=0; i<number_of_phdrs; i++){
+        free(phdrarray[i]);
+    }
+    free(phdrarray);
+
+    for (int i =0 ; i<number_of_phdrs; i++){
+        if (deletionarray[i] != NULL){
+            munmap(deletionarray[i]->m_phdr, deletionarray[i]->size);
+            free(deletionarray[i]);
+        }
+    }
+    free(deletionarray);
 }
 
 int Check_Magic_Num(Elf32_Ehdr* ehdr){
@@ -27,8 +50,12 @@ int Check_Magic_Num(Elf32_Ehdr* ehdr){
 
 void ELF_checker(char** exe){
     fd = open(*exe, O_RDONLY);
+    if (fd == -1){
+        perror("Error while opening");
+        exit(0);
+    }
     int esize = sizeof(Elf32_Ehdr);
-    ehdr = (Elf32_Ehdr*)malloc(esize * sizeof(char));
+    ehdr = (Elf32_Ehdr*)malloc(esize * sizeof(char));                   //malloc mai check????
     lseek(fd, 0 , SEEK_SET);
     read(fd, ehdr, esize * sizeof(char));
     int a = Check_Magic_Num(ehdr);
@@ -38,7 +65,11 @@ void ELF_checker(char** exe){
         exit(0);
     }
     free(ehdr);
-    close(fd);
+    int closeerr = close(fd);
+    if (closeerr == -1){
+        perror("Error while closing");
+        exit(0);
+    }
 }
 
 /*
@@ -61,6 +92,7 @@ void load_and_run_elf(char** exe) {
     entryaddr = ehdr->e_entry;
 
     phdrarray = (Elf32_Phdr**)malloc(phdr_size*sizeof(char)*number_of_phdrs);
+    deletionarray = (mapped_phdr**)malloc(sizeof(mapped_phdr)*number_of_phdrs);
 
     for (int i=0; i<number_of_phdrs; i++){
         Elf32_Phdr* tempphdr = (Elf32_Phdr*)malloc(phdr_size*sizeof(char));
@@ -79,20 +111,33 @@ void load_and_run_elf(char** exe) {
     // 6. Call the "_start" method and print the value returned from the "_start"
     int result = _start();
     printf("User _start return value = %d\n",result);
-    //munmap(virtual_mem, virtmemz);
+    printf("Total number of page faults = %d\n", total_page_faults);
+    printf("Total number of page allocations = %d\n", total_page_allocations);
+    printf("Total amount of internal fragmentation in KB = %.2f\n", (double)internal_fragmentation/1024);
     close(fd);
 }
 
 static void personal_handler(int signum, siginfo_t *info, void *context){
     if (signum == SIGSEGV){
         void* segfaddr = info->si_addr;
+        total_page_faults++;
         // phdr = (Elf32_Phdr*)mmap(info->si_addr, phdr_size*sizeof(char), PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
         for (int i=0; i<number_of_phdrs; i++){
             int vadr = phdrarray[i]->p_vaddr;
             if (vadr <= (int)segfaddr && (vadr + phdrarray[i]->p_memsz) > (int)segfaddr){
-                phdr = (Elf32_Phdr*)mmap((void*)vadr, phdrarray[i]->p_memsz, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
+                int tempsize = phdrarray[i]->p_memsz;
+                int ceilval = (tempsize + (int)PAGE_SIZE - 1) / (int) PAGE_SIZE;      //ceil val of division (number of pages)
+                phdr = (Elf32_Phdr*)mmap((void*)vadr, ceilval*(int)PAGE_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
+                internal_fragmentation += (ceilval*(int)PAGE_SIZE) - tempsize;
+                total_page_allocations += ceilval;
                 lseek(fd, phdrarray[i]->p_offset, SEEK_SET);
                 read(fd, phdr, phdrarray[i]->p_memsz);
+
+                mapped_phdr* temp = NULL;
+                temp = (mapped_phdr*)malloc(sizeof(mapped_phdr));
+                temp->m_phdr = phdr;
+                temp->size = ceilval*(int)PAGE_SIZE;
+                deletionarray[i] = temp;
                 break;
             }
         }
