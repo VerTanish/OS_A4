@@ -2,9 +2,9 @@
 
 Elf32_Ehdr *ehdr;
 Elf32_Phdr *phdr;
-//Elf32_Phdr *globalphdr;
 int fd;
 int phdr_size;
+Elf32_Phdr **phdrarray;
 
 int number_of_phdrs, phdr_offset, entryaddr;
 
@@ -34,6 +34,7 @@ void ELF_checker(char** exe){
     int a = Check_Magic_Num(ehdr);
     if (a == 1){
         printf("Invalid ELF file.\n");
+        free(ehdr);
         exit(0);
     }
     free(ehdr);
@@ -47,10 +48,6 @@ void load_and_run_elf(char** exe) {
     fd = open(*exe, O_RDONLY);
     // 1. Load entire binary content into the memory from the ELF file.
     int buff_size = lseek(fd, 0, SEEK_END);
-    char * buff;
-    lseek(fd, 0 , SEEK_SET);
-    buff = (char*) malloc (buff_size*sizeof(char));
-    read(fd, buff, buff_size);
     // 2. Iterate through the PHDR table and find the section of PT_LOAD 
     //    type that contains the address of the entrypoint method in fib.c
     int ehdrsize = sizeof(Elf32_Ehdr);
@@ -63,99 +60,43 @@ void load_and_run_elf(char** exe) {
     phdr_size = ehdr->e_phentsize;
     entryaddr = ehdr->e_entry;
 
-    // globalphdr = (Elf32_Phdr*)malloc(phdr_size*sizeof(char)*number_of_phdrs);
-    // lseek(fd, phdr_offset, SEEK_SET);
-    // read(fd, globalphdr,phdr_size*sizeof(char)*number_of_phdrs);
+    phdrarray = (Elf32_Phdr**)malloc(phdr_size*sizeof(char)*number_of_phdrs);
 
-    // int (*_start)()= (int(*)())(entryaddr);
-    //_start();
+    for (int i=0; i<number_of_phdrs; i++){
+        Elf32_Phdr* tempphdr = (Elf32_Phdr*)malloc(phdr_size*sizeof(char));
+        lseek(fd, phdr_offset + i * phdr_size, SEEK_SET);
+        read(fd, tempphdr, phdr_size);
+        phdrarray[i] = tempphdr;
+    }
+    // for (int i=0; i<number_of_phdrs; i++){
+    //         int vadr = phdrarray[i]->p_vaddr;
+    //         printf("%x\n", vadr);
+    //     }
 
-    // int virt=0, virtadd = 0, virtmemz = 0, virtoff = 0;
-    // for (int i = 0; i < number_of_phdrs; i++) {
-    //     phdr = (Elf32_Phdr*) malloc(phdr_size * sizeof(char));
-    //     lseek(fd, phdr_offset + i * phdr_size, SEEK_SET);
-    //     read(fd, phdr, phdr_size);
-
-    //     int ptype = phdr->p_type;
-    //     int vadr = phdr->p_vaddr;
-    //     if (ptype == PT_LOAD ){
-    //         if (vadr <= entryaddr && vadr + phdr->p_memsz > entryaddr){
-    //             virt = i;
-    //             virtadd = vadr;
-    //             virtmemz = phdr->p_memsz;
-    //             virtoff = phdr->p_offset;
-    //             break;
-    //         }
-    //         }
-    // }
-    // // 3. Allocate memory of the size "p_memsz" using mmap function 
-    // //    and then copy the segment content
-    // Elf32_Phdr* virtual_mem = mmap(NULL, virtmemz, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
-    // lseek(fd, virtoff, SEEK_SET);
-    // read(fd, virtual_mem, virtmemz);
-
-    // // 4. Navigate to the entrypoint address into the segment loaded in the memory in above step
-    // void* final_addr = ((void*)(virtual_mem) + (entryaddr-virtadd));
-
-
-    // 5. Typecast the address to that of function pointer matching "_start" method in fib.c.
     final_addr = (void*)entryaddr;
     int (*_start)()= (int(*)())(final_addr);
 
     // 6. Call the "_start" method and print the value returned from the "_start"
     int result = _start();
     printf("User _start return value = %d\n",result);
-    free(buff);
     //munmap(virtual_mem, virtmemz);
     close(fd);
 }
 
-static void personal_handler(int signum){
+static void personal_handler(int signum, siginfo_t *info, void *context){
     if (signum == SIGSEGV){
-        //phdr = (Elf32_Phdr*)mmap(NULL, phdr_size*sizeof(char), PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
-        int virt=0, virtadd = 0, virtmemz = 0, virtoff = 0;
-        for (int i = 0; i < number_of_phdrs; i++) {
-            //phdr = (Elf32_Phdr*) malloc(phdr_size * sizeof(char));
-            //void* tempaddr = (void*)globalphdr->p_vaddr + i*phdr_size;
-
-            Elf32_Phdr* temphdr = (Elf32_Phdr*)malloc(phdr_size * sizeof(char));
-            lseek(fd, phdr_offset + i * phdr_size, SEEK_SET);
-            read(fd, temphdr, phdr_size);
-
-            phdr = (Elf32_Phdr*)mmap((void*)temphdr->p_vaddr, phdr_size*sizeof(char), PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
-            lseek(fd, phdr_offset + i * phdr_size, SEEK_SET);
-            read(fd, phdr, phdr_size);
-
-            // free(temphdr);
-
-            // int ptype = phdr->p_type;
-            // int vadr = phdr->p_vaddr;
-            // if (ptype == PT_LOAD ){
-            //     if (vadr <= entryaddr && vadr + phdr->p_memsz > entryaddr){
-            //         virt = i;
-            //         virtadd = vadr;
-            //         virtmemz = phdr->p_memsz;
-            //         virtoff = phdr->p_offset;
-            //         break;
-            //     }
-            //     }
-            
+        void* segfaddr = info->si_addr;
+        // phdr = (Elf32_Phdr*)mmap(info->si_addr, phdr_size*sizeof(char), PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
+        for (int i=0; i<number_of_phdrs; i++){
+            int vadr = phdrarray[i]->p_vaddr;
+            if (vadr <= (int)segfaddr && (vadr + phdrarray[i]->p_memsz) > (int)segfaddr){
+                phdr = (Elf32_Phdr*)mmap((void*)vadr, phdrarray[i]->p_memsz, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
+                lseek(fd, phdrarray[i]->p_offset, SEEK_SET);
+                read(fd, phdr, phdrarray[i]->p_memsz);
+                break;
+            }
         }
-        // 3. Allocate memory of the size "p_memsz" using mmap function 
-        //    and then copy the segment content
-        // Elf32_Phdr* virtual_mem = mmap(NULL, virtmemz, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
-        // lseek(fd, virtoff, SEEK_SET);
-        // read(fd, virtual_mem, virtmemz);
 
-        // 4. Navigate to the entrypoint address into the segment loaded in the memory in above step
-        //final_addr = ((void*)(virtual_mem) + (entryaddr-virtadd));
-
-
-        // 5. Typecast the address to that of function pointer matching "_start" method in fib.c.
-        //int (*_start)()= (int(*)())(final_addr);
-
-        // 6. Call the "_start" method and print the value returned from the "_start"
-        //munmap(virtual_mem, virtmemz);
         }
 }
 
@@ -170,7 +111,8 @@ int main(int argc, char** argv)
 
     struct sigaction sig;
     memset(&sig, 0, sizeof(sig));
-    sig.sa_handler = personal_handler;
+    sig.sa_sigaction = personal_handler;
+    sig.sa_flags = SA_SIGINFO;
     sigaction(SIGSEGV, &sig, NULL);
 
 
