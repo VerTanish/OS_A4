@@ -122,7 +122,7 @@ void load_and_run_elf(char** exe) {
         perror("Error: malloc");
         exit(0);
     }
-    deletionarray = (mapped_phdr**)malloc(sizeof(mapped_phdr)*number_of_phdrs*32);
+    deletionarray = (mapped_phdr**)malloc(sizeof(mapped_phdr)*number_of_phdrs*100);
     if (deletionarray == NULL){
         perror("Error: malloc");
         exit(0);
