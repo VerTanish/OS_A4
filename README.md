@@ -20,6 +20,7 @@ After this, for cleanup, an array of large size is used as done in without bonus
 Note: error checks and cleanup is done for all required functions.
 
 # Contributions
-Tanish Verma(2022532), Kirti Jain(2022250)- both contributed equally
+Tanish Verma(2022532) - smartloader + withbonus part
+Kirti Jain(2022250) - smartloader + documentation
 
 repo link: https://github.com/VerTanish/OS_A4
