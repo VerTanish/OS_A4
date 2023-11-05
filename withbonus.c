@@ -52,29 +52,29 @@ int Check_Magic_Num(Elf32_Ehdr* ehdr){
         return 1;    
 }
 
-void ELF_checker(char** exe){
+void ELF_checker(char** exe){  //same as without bonus
     fd = open(*exe, O_RDONLY);
     if (fd == -1){
         perror("Error while opening");
         exit(0);
     }
     int esize = sizeof(Elf32_Ehdr);
-    ehdr = (Elf32_Ehdr*)malloc(esize * sizeof(char));                
+    ehdr = (Elf32_Ehdr*)malloc(esize * sizeof(char));               
     if (ehdr == NULL){
-        perror("Error: malloc");
+        perror("Error: malloc"); //malloc error check
         exit(0);
     }
     lseek(fd, 0 , SEEK_SET);
     read(fd, ehdr, esize * sizeof(char));
     int a = Check_Magic_Num(ehdr);
     if (a == 1){
-        printf("Invalid ELF file.\n");
+        printf("Invalid ELF file.\n"); //error check
         free(ehdr);
         exit(0);
     }
     free(ehdr);
     int closeerr = close(fd);
-    if (closeerr == -1){
+    if (closeerr == -1){                   //error check
         perror("Error while closing");
         exit(0);
     }
@@ -172,10 +172,10 @@ static void personal_handler(int signum, siginfo_t *info, void *context){
         // phdr = (Elf32_Phdr*)mmap(info->si_addr, phdr_size*sizeof(char), PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
         for (int i=0; i<number_of_phdrs; i++){
             int vadr = phdrarray[i]->p_vaddr;
-            if (vadr <= (int)segfaddr && (vadr + phdrarray[i]->p_memsz) > (int)segfaddr){
+            if (vadr <= (int)segfaddr && (vadr + phdrarray[i]->p_memsz) > (int)segfaddr){//check if faulty address liesin range
                 int tempsize = phdrarray[i]->p_memsz;
                 int ceilval = (tempsize + (int)PAGE_SIZE - 1) / (int) PAGE_SIZE;      //ceil val of division (number of pages)
-                if (globalcount > 1){
+                if (globalcount > 1){   // to see if more pages need to be allocated
                     phdr = (Elf32_Phdr*)mmap((void*)(vadr + (void*)((globalcount-1)*4096)), (int)PAGE_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
                 }
                 else{
@@ -189,7 +189,7 @@ static void personal_handler(int signum, siginfo_t *info, void *context){
 
                 total_page_allocations++;
                 if (globalcount == 1){
-                    internal_fragmentation += (ceilval*(int)PAGE_SIZE) - tempsize;
+                    internal_fragmentation += (ceilval*(int)PAGE_SIZE) - tempsize; //unused memory
                 }
                 if (lseek(fd, phdrarray[i]->p_offset + (globalcount-1)*4096, SEEK_SET) == -1){
                     perror("Error: lseek");
